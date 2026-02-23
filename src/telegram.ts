@@ -1,215 +1,121 @@
-import TelegramBot from 'node-telegram-bot-api';
-import { NotifierConfig, TelegramResponse } from './types';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+export interface TelegramConfig {
+  botToken: string;
+  chatId: string;
+  notifyOnApproval?: boolean;
+  notifyOnCompletion?: boolean;
+  notifyOnLongThinking?: boolean;
+  longThinkingThresholdMinutes?: number;
+  includeContext?: boolean;
+  quietHoursStart?: string | null;
+  quietHoursEnd?: string | null;
+}
 
 /**
- * Telegram bot wrapper for sending notifications
+ * Load config from Claude Code config or environment variables
  */
-export class TelegramNotifier {
-  private bot: TelegramBot;
-  private config: NotifierConfig;
-  private messageHandlers: Map<number, (text: string) => void> = new Map();
+export function getConfig(): TelegramConfig | null {
+  // Try environment variables first
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
 
-  constructor(config: NotifierConfig) {
-    this.config = {
-      notifyOnApproval: true,
-      notifyOnCompletion: true,
-      notifyOnLongThinking: true,
-      longThinkingThresholdMinutes: 5,
-      includeContext: true,
-      quietHoursStart: null,
-      quietHoursEnd: null,
-      ...config,
+  if (botToken && chatId) {
+    return {
+      botToken,
+      chatId,
+      notifyOnApproval: process.env.TELEGRAM_NOTIFY_APPROVAL !== 'false',
+      notifyOnCompletion: process.env.TELEGRAM_NOTIFY_COMPLETION !== 'false',
+      notifyOnLongThinking: process.env.TELEGRAM_NOTIFY_THINKING !== 'false',
+      longThinkingThresholdMinutes: parseInt(process.env.TELEGRAM_THINKING_THRESHOLD || '5', 10),
+      includeContext: process.env.TELEGRAM_INCLUDE_CONTEXT !== 'false',
     };
-
-    this.bot = new TelegramBot(this.config.botToken, { polling: true });
-    this.setupMessageHandler();
   }
 
-  /**
-   * Check if currently in quiet hours
-   */
-  private isQuietHours(): boolean {
-    if (!this.config.quietHoursStart || !this.config.quietHoursEnd) {
-      return false;
-    }
-
-    const now = new Date();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
-    
-    const [startHour, startMin] = this.config.quietHoursStart.split(':').map(Number);
-    const [endHour, endMin] = this.config.quietHoursEnd.split(':').map(Number);
-    
-    const startTime = startHour * 60 + startMin;
-    const endTime = endHour * 60 + endMin;
-
-    if (startTime < endTime) {
-      return currentTime >= startTime && currentTime < endTime;
-    } else {
-      // Quiet hours span midnight
-      return currentTime >= startTime || currentTime < endTime;
-    }
-  }
-
-  /**
-   * Set up handler for incoming messages (replies)
-   */
-  private setupMessageHandler(): void {
-    this.bot.on('message', (msg) => {
-      if (!msg.text || msg.chat.id.toString() !== this.config.chatId) {
-        return;
+  // Try Claude Code config file
+  const configPath = path.join(os.homedir(), '.claude-code', 'config.json');
+  
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const pluginConfig = config.plugins?.find(
+        (p: any) => p.name === 'telegram-notifier' || p.name === 'claude-code-telegram-notifier'
+      );
+      
+      if (pluginConfig?.config) {
+        return pluginConfig.config;
       }
-
-      // Handle reply to approval message
-      if (msg.reply_to_message && this.messageHandlers.has(msg.reply_to_message.message_id)) {
-        const handler = this.messageHandlers.get(msg.reply_to_message.message_id)!;
-        handler(msg.text);
-        this.messageHandlers.delete(msg.reply_to_message.message_id);
-      }
-    });
-  }
-
-  /**
-   * Send approval required notification
-   */
-  async sendApprovalNotification(
-    requestId: string,
-    action: string,
-    description: string,
-    context?: string
-  ): Promise<TelegramResponse | null> {
-    if (!this.config.notifyOnApproval || this.isQuietHours()) {
-      return null;
+    } catch (e) {
+      console.error('Failed to load config:', e);
     }
-
-    const message = `⏸️ *Claude needs approval*
-
-${this.config.includeContext && context ? `Task: _${this.escapeMarkdown(context)}_\n\n` : ''}Claude wants to: \`${this.escapeMarkdown(action)}\`
-
-${this.escapeMarkdown(description)}
-
-Reply with: ✅ Approve | ❌ Deny | 💬 Ask`;
-
-    const sent = await this.bot.sendMessage(this.config.chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '✅ Approve', callback_data: `approve:${requestId}` },
-            { text: '❌ Deny', callback_data: `deny:${requestId}` },
-          ],
-        ],
-      },
-    });
-
-    return {
-      messageId: sent.message_id,
-      chatId: sent.chat.id,
-      text: message,
-      timestamp: new Date(),
-    };
   }
 
-  /**
-   * Send task completed notification
-   */
-  async sendCompletionNotification(
-    description: string,
-    duration: number,
-    filesChanged?: number,
-    summary?: string
-  ): Promise<TelegramResponse | null> {
-    if (!this.config.notifyOnCompletion || this.isQuietHours()) {
-      return null;
-    }
+  return null;
+}
 
-    const durationMinutes = Math.round(duration / 60000);
-    const durationText = durationMinutes < 1 ? '< 1 min' : `${durationMinutes} min`;
-
-    let message = `✅ *Task Complete*\n\n`;
-    
-    if (this.config.includeContext) {
-      message += `Task: _${this.escapeMarkdown(description)}_\n\n`;
-    }
-    
-    message += `Duration: ${durationText}`;
-    
-    if (filesChanged !== undefined) {
-      message += `\nFiles changed: ${filesChanged}`;
-    }
-    
-    if (summary) {
-      message += `\n\n_${this.escapeMarkdown(summary.substring(0, 200))}${summary.length > 200 ? '...' : ''}_`;
-    }
-
-    const sent = await this.bot.sendMessage(this.config.chatId, message, {
-      parse_mode: 'Markdown',
-    });
-
-    return {
-      messageId: sent.message_id,
-      chatId: sent.chat.id,
-      text: message,
-      timestamp: new Date(),
-    };
+/**
+ * Check if currently in quiet hours
+ */
+export function isQuietHours(config: TelegramConfig): boolean {
+  if (!config.quietHoursStart || !config.quietHoursEnd) {
+    return false;
   }
 
-  /**
-   * Send long thinking notification
-   */
-  async sendLongThinkingNotification(
-    description: string,
-    thinkingDuration: number
-  ): Promise<TelegramResponse | null> {
-    if (!this.config.notifyOnLongThinking || this.isQuietHours()) {
-      return null;
-    }
+  const now = new Date();
+  const currentTime = now.getHours() * 60 + now.getMinutes();
+  
+  const [startHour, startMin] = config.quietHoursStart.split(':').map(Number);
+  const [endHour, endMin] = config.quietHoursEnd.split(':').map(Number);
+  
+  const startTime = startHour * 60 + startMin;
+  const endTime = endHour * 60 + endMin;
 
-    const durationMinutes = Math.round(thinkingDuration / 60000);
+  if (startTime < endTime) {
+    return currentTime >= startTime && currentTime < endTime;
+  } else {
+    // Quiet hours span midnight
+    return currentTime >= startTime || currentTime < endTime;
+  }
+}
 
-    const message = `🤔 *Still working...*
-
-${this.config.includeContext ? `Task: _${this.escapeMarkdown(description)}_\n\n` : ''}Claude has been thinking for ${durationMinutes} minutes. Everything is proceeding normally.`;
-
-    const sent = await this.bot.sendMessage(this.config.chatId, message, {
-      parse_mode: 'Markdown',
-    });
-
-    return {
-      messageId: sent.message_id,
-      chatId: sent.chat.id,
-      text: message,
-      timestamp: new Date(),
-    };
+/**
+ * Send a message via Telegram Bot API
+ */
+export async function sendTelegramMessage(
+  config: TelegramConfig,
+  text: string,
+  options: {
+    parse_mode?: 'Markdown' | 'HTML';
+    reply_markup?: any;
+  } = {}
+): Promise<any> {
+  if (isQuietHours(config)) {
+    console.log('[Telegram Notifier] In quiet hours, skipping notification');
+    return null;
   }
 
-  /**
-   * Wait for a reply to a specific message
-   */
-  async waitForReply(messageId: number, timeoutMs: number = 300000): Promise<string | null> {
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        this.messageHandlers.delete(messageId);
-        resolve(null);
-      }, timeoutMs);
+  const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+  
+  const body = {
+    chat_id: config.chatId,
+    text,
+    ...options,
+  };
 
-      this.messageHandlers.set(messageId, (text: string) => {
-        clearTimeout(timeout);
-        resolve(text);
-      });
-    });
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Telegram API error: ${error}`);
   }
 
-  /**
-   * Escape Markdown special characters
-   */
-  private escapeMarkdown(text: string): string {
-    return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
-  }
-
-  /**
-   * Stop the bot
-   */
-  stop(): void {
-    this.bot.stopPolling();
-  }
+  return response.json();
 }

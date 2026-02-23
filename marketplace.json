@@ -1,0 +1,31 @@
+{
+  "name": "lucas-plugins",
+  "owner": {
+    "name": "Lucas",
+    "email": ""
+  },
+  "metadata": {
+    "description": "Personal plugins for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "telegram-notifier",
+      "source": {
+        "source": "github",
+        "repo": "herbalclaw/need-follow-up"
+      },
+      "description": "Get Telegram notifications when Claude needs approval or finishes tasks",
+      "version": "1.0.0",
+      "author": {
+        "name": "Lucas"
+      },
+      "homepage": "https://github.com/herbalclaw/need-follow-up",
+      "repository": "https://github.com/herbalclaw/need-follow-up",
+      "license": "MIT",
+      "keywords": ["telegram", "notifications", "approval", "mobile"],
+      "category": "productivity",
+      "tags": ["notifications", "telegram", "mobile", "approval"]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
-  "name": "claude-code-telegram-notifier",
+  "name": "telegram-notifier",
   "version": "1.0.0",
-  "description": "Claude Code CLI plugin that sends Telegram notifications when approval or task completion is needed",
+  "description": "Get Telegram notifications when Claude needs approval or finishes tasks",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -15,12 +15,14 @@
     "plugin",
     "telegram",
     "notifications",
-    "cli"
+    "approval"
   ],
-  "author": "",
+  "author": "Lucas",
   "license": "MIT",
-  "peerDependencies": {
-    "@anthropic-ai/claude-code": "^0.1.0"
+  "homepage": "https://github.com/herbalclaw/need-follow-up",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/herbalclaw/need-follow-up.git"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -28,8 +30,5 @@
     "eslint": "^8.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0"
-  },
-  "dependencies": {
-    "node-telegram-bot-api": "^0.64.0"
   }
 }

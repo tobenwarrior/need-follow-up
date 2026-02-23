@@ -1,20 +1,15 @@
-# Claude Code Telegram Notifier
+# Telegram Notifier for Claude Code
 
-A Claude Code CLI plugin that sends you Telegram notifications when:
-- Claude needs your approval to proceed
-- A task/prompt has been completed
-- Claude has been thinking for a while and wants to check in
-
-Never come back from a 15-minute break just to find Claude waiting for you to type "yes"!
+Get Telegram notifications when Claude needs approval or finishes tasks. Never come back from a break to find Claude waiting for you to type "yes"!
 
 ## Installation
 
 ```bash
-# Install the plugin
-npm install -g claude-code-telegram-notifier
+# Add the marketplace
+/plugin marketplace add https://github.com/herbalclaw/need-follow-up
 
-# Or install locally in your project
-npm install claude-code-telegram-notifier
+# Install the plugin
+/plugin install telegram-notifier@lucas-plugins
 ```
 
 ## Setup
@@ -31,7 +26,7 @@ npm install claude-code-telegram-notifier
 1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
 2. It will reply with your user info including your **Chat ID** (a number like `123456789`)
 
-### 3. Configure Claude Code
+### 3. Configure the Plugin
 
 Add to your `~/.claude-code/config.json`:
 
@@ -39,25 +34,28 @@ Add to your `~/.claude-code/config.json`:
 {
   "plugins": [
     {
-      "name": "claude-code-telegram-notifier",
+      "name": "telegram-notifier",
       "config": {
         "botToken": "YOUR_BOT_TOKEN",
         "chatId": "YOUR_CHAT_ID",
         "notifyOnApproval": true,
         "notifyOnCompletion": true,
         "notifyOnLongThinking": true,
-        "longThinkingThresholdMinutes": 5
+        "longThinkingThresholdMinutes": 5,
+        "includeContext": true
       }
     }
   ]
 }
 ```
 
-Or set environment variables:
+Or use environment variables:
 
 ```bash
 export TELEGRAM_BOT_TOKEN="your-bot-token"
 export TELEGRAM_CHAT_ID="your-chat-id"
+export TELEGRAM_NOTIFY_APPROVAL="true"
+export TELEGRAM_NOTIFY_COMPLETION="true"
 ```
 
 ## Configuration Options
@@ -74,49 +72,70 @@ export TELEGRAM_CHAT_ID="your-chat-id"
 | `quietHoursStart` | string | `null` | Start of quiet hours (24h format, e.g., "22:00") |
 | `quietHoursEnd` | string | `null` | End of quiet hours (e.g., "08:00") |
 
-## Usage
-
-Once installed and configured, the plugin works automatically. You'll receive Telegram messages like:
+## Notifications You'll Receive
 
 **Approval Needed:**
-> ⏸️ **Claude needs approval**
-> 
-> Task: *"Refactor the authentication module"*
-> 
-> Claude wants to: `Delete file src/auth/old.ts`
-> 
-> Reply with: ✅ Approve | ❌ Deny | 💬 Ask
+```
+⏸️ Claude needs approval
+
+Task: "Refactor the authentication module"
+
+Action: `Delete file src/auth/old.ts`
+
+Claude wants to remove the deprecated auth module.
+
+Reply with: ✅ yes | ❌ no
+```
 
 **Task Completed:**
-> ✅ **Task Complete**
-> 
-> Task: *"Refactor the authentication module"*
-> 
-> Duration: 12 minutes
-> Files changed: 5
-> 
-> [View Summary]
+```
+✅ Task Complete
+
+Task: "Refactor the authentication module"
+
+Duration: 12 min
+Files changed: 5
+
+_Migrated auth to new JWT-based system..._
+```
 
 **Long Thinking Check-in:**
-> 🤔 **Still working...**
-> 
-> Task: *"Analyze the codebase"*
-> 
-> Claude has been thinking for 8 minutes. Everything is proceeding normally.
+```
+🤔 Still working...
 
-## Reply Commands
+Task: "Analyze the codebase"
 
-When you receive an approval notification, you can reply with:
+Claude has been thinking for 8 minutes. Everything is proceeding normally.
+```
 
-- `yes`, `y`, `approve`, `✅` - Approve the action
-- `no`, `n`, `deny`, `❌` - Deny the action
-- Any other text - Claude will see it as a message
+## Quiet Hours
+
+Don't want notifications at night? Set quiet hours:
+
+```json
+{
+  "quietHoursStart": "22:00",
+  "quietHoursEnd": "08:00"
+}
+```
+
+Notifications will be suppressed during these hours.
+
+## How It Works
+
+The plugin uses Claude Code's hook system:
+
+- **`onApprovalRequired`** — Triggered when Claude needs permission
+- **`onTaskComplete`** — Triggered when a prompt finishes
+- **`onThinkingStart`** — Triggered during long-running tasks
+
+Each hook sends a Telegram message via the Bot API.
 
 ## Development
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/need-follow-up.git
+git clone https://github.com/herbalclaw/need-follow-up.git
 cd need-follow-up
 
 # Install dependencies
@@ -128,16 +147,6 @@ npm run build
 # Watch mode
 npm run dev
 ```
-
-## How It Works
-
-The plugin hooks into Claude Code's event system:
-
-1. **Approval Events**: When Claude needs permission (file edits, command execution, etc.)
-2. **Completion Events**: When a prompt finishes executing
-3. **Heartbeat Events**: Periodic checks for long-running tasks
-
-It sends these as Telegram messages via the Bot API, and can receive your replies to control Claude.
 
 ## License
 
