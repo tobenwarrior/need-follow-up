@@ -1,6 +1,5 @@
 #!/bin/bash
-# Webhook receiver for Telegram callbacks
-# This runs in the background and listens for approval/denial from Telegram
+# Webhook receiver for Telegram callbacks - WSL compatible
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
@@ -14,6 +13,17 @@ fi
 PENDING_DIR="${HOME}/.claude/telegram-notifier"
 mkdir -p "$PENDING_DIR"
 
+# PID file to track if server is running
+PID_FILE="${PENDING_DIR}/webhook.pid"
+echo $$ > "$PID_FILE"
+
+# Function to cleanup on exit
+cleanup() {
+    rm -f "$PID_FILE"
+    exit 0
+}
+trap cleanup EXIT INT TERM
+
 # Function to process updates
 process_updates() {
     local OFFSET=0
@@ -24,7 +34,7 @@ process_updates() {
         
         # Check if we have updates
         if [ "$(echo "$UPDATES" | jq -r '.ok')" != "true" ]; then
-            sleep 5
+            sleep 2
             continue
         fi
         
@@ -55,7 +65,7 @@ process_updates() {
                     
                     # Edit the message to show it's been handled
                     MESSAGE_ID=$(echo "$CALLBACK" | jq -r '.message.message_id')
-                    CHAT_ID=$(echo "$CALLBACK" | jq -r '.message.chat.id')
+                    CHAT_ID_CALLBACK=$(echo "$CALLBACK" | jq -r '.message.chat.id')
                     
                     if [ "$ACTION" = "approve" ]; then
                         NEW_TEXT="✅ *Approved*\\n\\nThis action has been approved."
@@ -66,7 +76,7 @@ process_updates() {
                     curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/editMessageText" \
                         -H "Content-Type: application/json" \
                         -d "{
-                            \"chat_id\": ${CHAT_ID},
+                            \"chat_id\": ${CHAT_ID_CALLBACK},
                             \"message_id\": ${MESSAGE_ID},
                             \"text\": \"${NEW_TEXT}\",
                             \"parse_mode\": \"Markdown\"
@@ -75,7 +85,7 @@ process_updates() {
             fi
         done
         
-        sleep 2
+        sleep 1
     done
 }
 

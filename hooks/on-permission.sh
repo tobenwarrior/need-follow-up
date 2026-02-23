@@ -1,17 +1,14 @@
 #!/bin/bash
-# Hook for PermissionRequest events - sends detailed Telegram notification with approval buttons
-# Auto-starts webhook server if not running
+# Hook for PermissionRequest events - WSL compatible
 
 # Read JSON input from stdin
 INPUT=$(cat)
 
-# Extract all relevant fields from Claude Code's PermissionRequest event
+# Extract fields
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
 TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // {}')
 REQUEST_ID=$(echo "$INPUT" | jq -r '.request_id // "unknown"')
 DESCRIPTION=$(echo "$INPUT" | jq -r '.description // ""')
-
-# Extract specific tool input details
 FILE_PATH=$(echo "$TOOL_INPUT" | jq -r '.file_path // .path // ""')
 COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // ""')
 
@@ -31,39 +28,43 @@ if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
     exit 0
 fi
 
-# Get the plugin directory
+# Setup directories
 PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WEBHOOK_SCRIPT="${PLUGIN_DIR}/hooks/webhook-server.sh"
 PENDING_DIR="${HOME}/.claude/telegram-notifier"
 mkdir -p "$PENDING_DIR"
+PID_FILE="${PENDING_DIR}/webhook.pid"
 
-# Debug log
-echo "[Telegram Notifier] Permission request: ${REQUEST_ID}" >> "${PENDING_DIR}/debug.log"
-
-# Auto-start webhook server if not running
-if ! pgrep -f "webhook-server.sh" > /dev/null 2>&1; then
-    echo "[Telegram Notifier] Starting webhook server..." >> "${PENDING_DIR}/debug.log"
-    if [ -x "$WEBHOOK_SCRIPT" ]; then
-        nohup "$WEBHOOK_SCRIPT" > "${PENDING_DIR}/webhook.log" 2>&1 &
-        sleep 2  # Give it more time to start
-        echo "[Telegram Notifier] Webhook server started" >> "${PENDING_DIR}/debug.log"
+# WSL-friendly server check and start
+if [ -f "$PID_FILE" ]; then
+    OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        : # Server is running
     else
-        echo "[Telegram Notifier] Webhook script not found: $WEBHOOK_SCRIPT" >> "${PENDING_DIR}/debug.log"
+        # PID file stale, remove it
+        rm -f "$PID_FILE"
+        # Start server
+        if [ -x "$WEBHOOK_SCRIPT" ]; then
+            bash "$WEBHOOK_SCRIPT" > "${PENDING_DIR}/webhook.log" 2>&1 &
+            sleep 2
+        fi
     fi
 else
-    echo "[Telegram Notifier] Webhook server already running" >> "${PENDING_DIR}/debug.log"
+    # No PID file, start server
+    if [ -x "$WEBHOOK_SCRIPT" ]; then
+        bash "$WEBHOOK_SCRIPT" > "${PENDING_DIR}/webhook.log" 2>&1 &
+        sleep 2
+    fi
 fi
 
-# Build detailed notification based on tool type
+# Build notification message
 case "$TOOL_NAME" in
     "Bash")
         EMOJI="💻"
         HEADER="Claude wants to run a command"
         if [ -n "$COMMAND" ]; then
             DETAIL="Command:\\n\`\`\`\\n${COMMAND:0:200}\\n\`\`\`"
-            if [ ${#COMMAND} -gt 200 ]; then
-                DETAIL="${DETAIL}..."
-            fi
+            [ ${#COMMAND} -gt 200 ] && DETAIL="${DETAIL}..."
         else
             DETAIL="Command: (see terminal)"
         fi
@@ -87,29 +88,21 @@ case "$TOOL_NAME" in
         EMOJI="⚠️"
         HEADER="Claude needs permission"
         DETAIL="Action: ${TOOL_NAME}"
-        if [ -n "$FILE_PATH" ]; then
-            DETAIL="${DETAIL}\\n📄 \`${FILE_PATH}\`"
-        fi
+        [ -n "$FILE_PATH" ] && DETAIL="${DETAIL}\\n📄 \`${FILE_PATH}\`"
         ;;
 esac
 
-# Add description if available
-if [ -n "$DESCRIPTION" ]; then
-    DETAIL="${DETAIL}\\n\\n📝 ${DESCRIPTION}"
-fi
+[ -n "$DESCRIPTION" ] && DETAIL="${DETAIL}\\n\\n📝 ${DESCRIPTION}"
 
-# Build the full message
 NOTIFICATION="${EMOJI} *${HEADER}*
 
 ${DETAIL}
 
-_Tap a button below to approve or deny:_"
+_Tap a button below:_"
 
-# Escape for JSON
 ESCAPED_NOTIFICATION=$(echo "$NOTIFICATION" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
 
-# Send notification with inline keyboard for approval
-echo "[Telegram Notifier] Sending Telegram message..." >> "${PENDING_DIR}/debug.log"
+# Send notification
 RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
     -d "{
@@ -126,20 +119,10 @@ RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage
         }
     }")
 
-echo "[Telegram Notifier] Telegram response: $RESPONSE" >> "${PENDING_DIR}/debug.log"
+[ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ] && exit 0
 
-# Check if message was sent successfully
-if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
-    echo "[Telegram Notifier] Failed to send message" >> "${PENDING_DIR}/debug.log"
-    exit 0
-fi
-
-# Wait for user response
+# Wait for decision
 DECISION_FILE="${PENDING_DIR}/${REQUEST_ID}.decision"
-
-echo "[Telegram Notifier] Waiting for decision at: $DECISION_FILE" >> "${PENDING_DIR}/debug.log"
-
-# Wait up to 5 minutes for a decision
 TIMEOUT=300
 ELAPSED=0
 
@@ -147,34 +130,20 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     if [ -f "$DECISION_FILE" ]; then
         DECISION=$(cat "$DECISION_FILE")
         rm -f "$DECISION_FILE"
-        echo "[Telegram Notifier] Decision received: $DECISION" >> "${PENDING_DIR}/debug.log"
-        
-        if [ "$DECISION" = "approve" ]; then
-            exit 0
-        else
-            echo "Request denied by user via Telegram" >&2
-            exit 1
-        fi
+        [ "$DECISION" = "approve" ] && exit 0
+        echo "Request denied by user via Telegram" >&2
+        exit 1
     fi
-    
     sleep 2
     ELAPSED=$((ELAPSED + 2))
 done
 
-# Timeout
-echo "[Telegram Notifier] Timeout waiting for decision" >> "${PENDING_DIR}/debug.log"
-
-# Timeout - allow the request but notify
-TIMEOUT_NOTIFICATION="⏰ *Approval timed out*
-
-No response received in 5 minutes. The request will proceed."
-ESCAPED_TIMEOUT=$(echo "$TIMEOUT_NOTIFICATION" | sed 's/"/\\"/g')
-
+# Timeout - notify and allow
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
     -d "{
         \"chat_id\": \"${CHAT_ID}\",
-        \"text\": \"${ESCAPED_TIMEOUT}\",
+        \"text\": \"⏰ Approval timed out - proceeding\",
         \"parse_mode\": \"Markdown\"
     }" > /dev/null
 
