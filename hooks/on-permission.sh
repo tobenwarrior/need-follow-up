@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hook for PermissionRequest events - Simple version that just notifies
+# Hook for PermissionRequest events - With two-way approval
 
 INPUT=$(cat)
 
@@ -23,6 +23,13 @@ if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
 fi
 
 [ -z "$BOT_TOKEN" ] && exit 0
+
+# Setup
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PENDING_DIR="${HOME}/.claude/telegram-notifier"
+DECISION_FILE="${PENDING_DIR}/${REQUEST_ID}.decision"
+
+mkdir -p "$PENDING_DIR"
 
 # Build message
 case "$TOOL_NAME" in
@@ -59,11 +66,42 @@ NOTIFICATION="${EMOJI} *${HEADER}*
 
 ${DETAIL}
 
-⏰ _Reply in terminal to approve_"
+_Tap to approve/deny:_"
 
-# Simple curl - no escaping needed for basic markdown
+# Send with inline keyboard
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
-    -d "{\"chat_id\": \"${CHAT_ID}\", \"text\": \"${NOTIFICATION}\", \"parse_mode\": \"Markdown\"}" > /dev/null
+    -d "{
+        \"chat_id\": \"${CHAT_ID}\",
+        \"text\": \"${NOTIFICATION}\",
+        \"parse_mode\": \"Markdown\",
+        \"reply_markup\": {
+            \"inline_keyboard\": [[
+                {\"text\": \"✅ Approve\", \"callback_data\": \"approve:${REQUEST_ID}\"},
+                {\"text\": \"❌ Deny\", \"callback_data\": \"deny:${REQUEST_ID}\"}
+            ]]
+        }
+    }" > /dev/null
+
+# Wait for decision (check file)
+TIMEOUT=300
+ELAPSED=0
+
+while [ $ELAPSED -lt $TIMEOUT ]; do
+    if [ -f "$DECISION_FILE" ]; then
+        DECISION=$(cat "$DECISION_FILE" 2>/dev/null)
+        rm -f "$DECISION_FILE"
+        [ "$DECISION" = "approve" ] && exit 0
+        echo "Denied via Telegram" >&2
+        exit 1
+    fi
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+done
+
+# Timeout - proceed
+curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+    -H "Content-Type: application/json" \
+    -d "{\"chat_id\": \"${CHAT_ID}\", \"text\": \"⏰ Timed out - proceeding\", \"parse_mode\": \"Markdown\"}" > /dev/null
 
 exit 0
