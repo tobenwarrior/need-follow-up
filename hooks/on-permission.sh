@@ -9,6 +9,11 @@ REQUEST_ID=$(echo "$INPUT" | jq -r '.request_id // "unknown"')
 FILE_PATH=$(echo "$TOOL_INPUT" | jq -r '.file_path // .path // ""')
 COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // ""')
 
+# Debug log
+PENDING_DIR="${HOME}/.claude/telegram-notifier"
+mkdir -p "$PENDING_DIR"
+echo "[permission] Request: $REQUEST_ID for $TOOL_NAME" >> "${PENDING_DIR}/debug.log"
+
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
@@ -22,12 +27,12 @@ if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
     done
 fi
 
-[ -z "$BOT_TOKEN" ] && exit 0
+if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+    echo "[permission] Error: No config found" >> "${PENDING_DIR}/debug.log"
+    exit 0
+fi
 
-# Setup
-PENDING_DIR="${HOME}/.claude/telegram-notifier"
 DECISION_FILE="${PENDING_DIR}/${REQUEST_ID}.decision"
-mkdir -p "$PENDING_DIR"
 
 # Build message
 case "$TOOL_NAME" in
@@ -60,7 +65,9 @@ case "$TOOL_NAME" in
         ;;
 esac
 
-# Create JSON payload using jq for proper escaping
+echo "[permission] Sending notification for $REQUEST_ID" >> "${PENDING_DIR}/debug.log"
+
+# Create JSON payload using jq
 PAYLOAD=$(jq -n \
     --arg chat_id "$CHAT_ID" \
     --arg text "$EMOJI $HEADER
@@ -82,9 +89,16 @@ Tap to approve:" \
     }')
 
 # Send message
-curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
-    -d "$PAYLOAD" > /dev/null
+    -d "$PAYLOAD")
+
+if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+    echo "[permission] Error sending message: $(echo "$RESPONSE" | jq -r '.description')" >> "${PENDING_DIR}/debug.log"
+    exit 0
+fi
+
+echo "[permission] Waiting for decision at: $DECISION_FILE" >> "${PENDING_DIR}/debug.log"
 
 # Wait for decision
 TIMEOUT=300
@@ -94,6 +108,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     if [ -f "$DECISION_FILE" ]; then
         DECISION=$(cat "$DECISION_FILE" 2>/dev/null)
         rm -f "$DECISION_FILE"
+        echo "[permission] Decision received: $DECISION" >> "${PENDING_DIR}/debug.log"
         [ "$DECISION" = "approve" ] && exit 0
         echo "Denied via Telegram" >&2
         exit 1
@@ -103,6 +118,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
 done
 
 # Timeout
+echo "[permission] Timeout waiting for decision" >> "${PENDING_DIR}/debug.log"
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
     -d "{\"chat_id\": \"${CHAT_ID}\", \"text\": \"⏰ Timed out\", \"parse_mode\": \"Markdown\"}" > /dev/null
