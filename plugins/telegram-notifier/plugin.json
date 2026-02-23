@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./hooks/on-permission.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/on-permission.sh"
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./hooks/on-notification.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/on-notification.sh"
           }
         ]
       }
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./hooks/on-stop.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/on-stop.sh"
           }
         ]
       }
