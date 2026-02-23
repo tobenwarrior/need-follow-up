@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hook for Notification events - Cross-platform
+# Hook for Notification events - with project name
 
 INPUT=$(cat)
 
@@ -7,12 +7,14 @@ NOTIF_TYPE=$(echo "$INPUT" | jq -r '.notification_type // "unknown"')
 MESSAGE=$(echo "$INPUT" | jq -r '.message // ""')
 TITLE=$(echo "$INPUT" | jq -r '.title // ""')
 
+# Get project name from current directory
+PROJECT_NAME=$(basename "$PWD")
+
 # Only handle specific types
 if [ "$NOTIF_TYPE" != "permission_prompt" ] && [ "$NOTIF_TYPE" != "idle_prompt" ] && [ "$NOTIF_TYPE" != "elicitation_dialog" ]; then
     exit 0
 fi
 
-# Load config
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
@@ -36,7 +38,10 @@ case "$NOTIF_TYPE" in
     *) EMOJI="📢"; HEADER="Claude notification" ;;
 esac
 
-NOTIFICATION="${EMOJI} *${HEADER}*"
+NOTIFICATION="📁 *${PROJECT_NAME}*
+
+${EMOJI} ${HEADER}"
+
 [ -n "$TITLE" ] && NOTIFICATION="${NOTIFICATION}
 
 *${TITLE}*"
@@ -53,13 +58,11 @@ NOTIFICATION="${NOTIFICATION}
 
 ⏰ _Check terminal to respond_"
 
-ESCAPED=$(printf '%s' "$NOTIFICATION" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
-
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
     -d "{
         \"chat_id\": \"${CHAT_ID}\",
-        \"text\": \"${ESCAPED}\",
+        \"text\": \"${NOTIFICATION}\",
         \"parse_mode\": \"Markdown\"
     }" > /dev/null
 

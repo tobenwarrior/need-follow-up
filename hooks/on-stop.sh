@@ -1,7 +1,10 @@
 #!/bin/bash
-# Hook for Stop events - Cross-platform
+# Hook for Stop events - with project name
 
 INPUT=$(cat)
+
+# Get project name from current directory
+PROJECT_NAME=$(basename "$PWD")
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
@@ -20,17 +23,17 @@ fi
 
 [ "${TELEGRAM_NOTIFY_COMPLETION:-true}" = "false" ] && exit 0
 
-NOTIFICATION="✅ *Claude finished*
+NOTIFICATION="📁 *${PROJECT_NAME}*
+
+✅ *Claude finished*
 
 Your request has been completed. Check the terminal for details."
-
-ESCAPED=$(printf '%s' "$NOTIFICATION" | sed 's/"/\\"/g')
 
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
     -d "{
         \"chat_id\": \"${CHAT_ID}\",
-        \"text\": \"${ESCAPED}\",
+        \"text\": \"${NOTIFICATION}\",
         \"parse_mode\": \"Markdown\"
     }" > /dev/null
 

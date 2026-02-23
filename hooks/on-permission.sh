@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hook for PermissionRequest events - Notification only
+# Hook for PermissionRequest events - Notification only with project name
 
 INPUT=$(cat)
 
@@ -7,6 +7,9 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
 TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // {}')
 FILE_PATH=$(echo "$TOOL_INPUT" | jq -r '.file_path // .path // ""')
 COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // ""')
+
+# Get project name from current directory
+PROJECT_NAME=$(basename "$PWD")
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
@@ -54,7 +57,9 @@ case "$TOOL_NAME" in
         ;;
 esac
 
-NOTIFICATION="${EMOJI} *${HEADER}*
+NOTIFICATION="📁 *${PROJECT_NAME}*
+
+${EMOJI} ${HEADER}
 
 ${DETAIL}
 
