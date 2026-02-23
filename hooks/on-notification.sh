@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hook for Notification events - with project name (no emojis)
+# Hook for Notification events - with project name
 
 INPUT=$(cat)
 
@@ -9,6 +9,9 @@ TITLE=$(echo "$INPUT" | jq -r '.title // ""')
 
 # Get project name from current directory
 PROJECT_NAME=$(basename "$PWD")
+
+# Check if emojis are enabled (default: enabled)
+USE_EMOJIS="${TELEGRAM_USE_EMOJIS:-true}"
 
 # Only handle specific types
 if [ "$NOTIF_TYPE" != "permission_prompt" ] && [ "$NOTIF_TYPE" != "idle_prompt" ] && [ "$NOTIF_TYPE" != "elicitation_dialog" ]; then
@@ -30,17 +33,28 @@ fi
 
 [ -z "$BOT_TOKEN" ] && exit 0
 
-# Build message (no emojis)
-case "$NOTIF_TYPE" in
-    "permission_prompt") HEADER="Claude needs approval" ;;
-    "idle_prompt") HEADER="Claude is waiting" ;;
-    "elicitation_dialog") HEADER="Claude has a question" ;;
-    *) HEADER="Claude notification" ;;
-esac
+# Build message
+if [ "$USE_EMOJIS" = "true" ]; then
+    case "$NOTIF_TYPE" in
+        "permission_prompt") EMOJI="⏸️"; HEADER="Claude needs approval" ;;
+        "idle_prompt") EMOJI="🤔"; HEADER="Claude is waiting" ;;
+        "elicitation_dialog") EMOJI="💬"; HEADER="Claude has a question" ;;
+        *) EMOJI="📢"; HEADER="Claude notification" ;;
+    esac
+    FOLDER_EMOJI="📁"
+else
+    case "$NOTIF_TYPE" in
+        "permission_prompt") HEADER="[NEEDS APPROVAL] Claude needs approval" ;;
+        "idle_prompt") HEADER="[WAITING] Claude is waiting" ;;
+        "elicitation_dialog") HEADER="[QUESTION] Claude has a question" ;;
+        *) HEADER="[NOTIFY] Claude notification" ;;
+    esac
+    FOLDER_EMOJI="[PROJECT]"
+fi
 
-NOTIFICATION="Project: ${PROJECT_NAME}
+NOTIFICATION="${FOLDER_EMOJI} ${PROJECT_NAME}
 
-${HEADER}"
+${EMOJI} ${HEADER}"
 
 [ -n "$TITLE" ] && NOTIFICATION="${NOTIFICATION}
 

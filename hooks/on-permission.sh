@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hook for PermissionRequest events - Notification only with project name (no emojis for compatibility)
+# Hook for PermissionRequest events - Notification only with project name
 
 INPUT=$(cat)
 
@@ -10,6 +10,9 @@ COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // ""')
 
 # Get project name from current directory
 PROJECT_NAME=$(basename "$PWD")
+
+# Check if emojis are enabled (default: enabled)
+USE_EMOJIS="${TELEGRAM_USE_EMOJIS:-true}"
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
@@ -26,41 +29,79 @@ fi
 
 [ -z "$BOT_TOKEN" ] && exit 0
 
-# Build message (no emojis for cross-platform compatibility)
+# Build message with or without emojis
+if [ "$USE_EMOJIS" = "true" ]; then
+    case "$TOOL_NAME" in
+        "Bash")
+            EMOJI="💻"
+            HEADER="Claude wants to run a command"
+            ;;
+        "Write")
+            EMOJI="📝"
+            HEADER="Claude wants to create a file"
+            ;;
+        "Edit")
+            EMOJI="✏️"
+            HEADER="Claude wants to edit a file"
+            ;;
+        "Read")
+            EMOJI="👀"
+            HEADER="Claude wants to read a file"
+            ;;
+        *)
+            EMOJI="⚠️"
+            HEADER="Claude needs permission"
+            ;;
+    esac
+    FOLDER_EMOJI="📁"
+    TIME_EMOJI="⏰"
+else
+    case "$TOOL_NAME" in
+        "Bash")
+            EMOJI="[CMD]"
+            HEADER="Claude wants to run a command"
+            ;;
+        "Write")
+            EMOJI="[WRITE]"
+            HEADER="Claude wants to create a file"
+            ;;
+        "Edit")
+            EMOJI="[EDIT]"
+            HEADER="Claude wants to edit a file"
+            ;;
+        "Read")
+            EMOJI="[READ]"
+            HEADER="Claude wants to read a file"
+            ;;
+        *)
+            EMOJI="[PERM]"
+            HEADER="Claude needs permission"
+            ;;
+    esac
+    FOLDER_EMOJI="[PROJECT]"
+    TIME_EMOJI="[WAIT]"
+fi
+
+# Build detail
 case "$TOOL_NAME" in
     "Bash")
-        HEADER="Claude wants to run a command"
         DETAIL="${COMMAND:0:300}"
         [ ${#COMMAND} -gt 300 ] && DETAIL="${DETAIL}..."
         ;;
-    "Write")
-        HEADER="Claude wants to create a file"
-        DETAIL="${FILE_PATH}"
-        ;;
-    "Edit")
-        HEADER="Claude wants to edit a file"
-        DETAIL="${FILE_PATH}"
-        ;;
-    "Read")
-        HEADER="Claude wants to read a file"
-        DETAIL="${FILE_PATH}"
-        ;;
     *)
-        HEADER="Claude needs permission"
-        DETAIL="${TOOL_NAME}"
-        [ -n "$FILE_PATH" ] && DETAIL="${DETAIL}: ${FILE_PATH}"
+        DETAIL="${FILE_PATH}"
         ;;
 esac
 
-NOTIFICATION="Project: ${PROJECT_NAME}
+NOTIFICATION="${FOLDER_EMOJI} ${PROJECT_NAME}
 
-${HEADER}
+${EMOJI} ${HEADER}
 
 ${DETAIL}
 
-Go to terminal to approve"
+${TIME_EMOJI} Go to terminal to approve"
 
-# Send notification (no parse_mode to avoid markdown issues)
+# Send notification
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
     -H "Content-Type: application/json" \
     -d "{

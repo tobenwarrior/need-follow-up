@@ -1,10 +1,13 @@
 #!/bin/bash
-# Hook for Stop events - with project name (no emojis)
+# Hook for Stop events - with project name
 
 INPUT=$(cat)
 
 # Get project name from current directory
 PROJECT_NAME=$(basename "$PWD")
+
+# Check if emojis are enabled (default: enabled)
+USE_EMOJIS="${TELEGRAM_USE_EMOJIS:-true}"
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
@@ -23,9 +26,17 @@ fi
 
 [ "${TELEGRAM_NOTIFY_COMPLETION:-true}" = "false" ] && exit 0
 
-NOTIFICATION="Project: ${PROJECT_NAME}
+if [ "$USE_EMOJIS" = "true" ]; then
+    FOLDER_EMOJI="📁"
+    DONE_EMOJI="✅"
+else
+    FOLDER_EMOJI="[PROJECT]"
+    DONE_EMOJI="[DONE]"
+fi
 
-Claude finished
+NOTIFICATION="${FOLDER_EMOJI} ${PROJECT_NAME}
+
+${DONE_EMOJI} Claude finished
 
 Your request has been completed. Check the terminal for details."
 
