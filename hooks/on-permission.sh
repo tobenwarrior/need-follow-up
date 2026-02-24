@@ -72,10 +72,9 @@ ${DETAIL}
 ${TIME_EMOJI} Go to terminal to approve"
 
 # Send notification (use jq to properly encode Unicode/emojis)
-jq -n --arg chat_id "$CHAT_ID" --arg text "$NOTIFICATION" \
-    '{chat_id: $chat_id, text: $text}' | \
-    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-        -H "Content-Type: application/json" \
-        -d @- > /dev/null
+PAYLOAD=$(jq -n --arg chat_id "$CHAT_ID" --arg text "$NOTIFICATION" '{chat_id: $chat_id, text: $text}')
+curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" > /dev/null
 
 exit 0
